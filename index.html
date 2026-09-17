@@ -102,7 +102,21 @@
     min-width: 0;
   }
   .cell:last-child { border-right: none; }
-  .row.head .cell { padding: 10px 14px; min-height: 0; position: relative; }
+  .row.head .cell { padding: 10px 14px; min-height: 0; position: relative; display: flex; align-items: center; gap: 4px; }
+  .col-label { outline: none; cursor: text; }
+  .col-label:focus { background: #fff6f9; border-radius: 4px; padding: 0 3px; }
+  .col-del { color: #e0b6c6; cursor: pointer; font-size: 13px; visibility: hidden; }
+  .row.head .cell:hover .col-del { visibility: visible; }
+  .add-col {
+    color: #d1608a;
+    cursor: pointer;
+    text-align: center;
+    font-size: 16px;
+    line-height: 1;
+    padding: 10px 0;
+  }
+  .add-col:hover { background: #fbdde7; border-radius: 0 14px 0 0; }
+
   .cell[contenteditable]:focus { outline: 2px solid #f8cfdd; border-radius: 4px; }
   .cell.name { font-weight: 600; }
   .del-row { color: #ddc0cb; cursor: pointer; text-align: center; padding-top: 13px; }
@@ -221,43 +235,82 @@ function renderList() {
     </div>`).join('');
 }
 
-const COLS = ['内容清单', '状态', '进展', '卡点', '预期'];
-let widths = JSON.parse(localStorage.getItem('daily-cols') || 'null') || [190, 110, 320, 250, 250];
+/* 列定义：表头可改名、可增删 */
+const DEFAULT_COLS = [
+  { key: 'name', label: '内容清单', type: 'text', width: 190 },
+  { key: 'status', label: '状态', type: 'status', width: 110 },
+  { key: 'progress', label: '进展', type: 'text', width: 320 },
+  { key: 'block', label: '卡点', type: 'text', width: 250 },
+  { key: 'next', label: '预期', type: 'text', width: 250 }
+];
+const COLKEY = 'daily-columns';
+let cols = loadCols();
+
+function loadCols() {
+  try {
+    const s = JSON.parse(localStorage.getItem(COLKEY));
+    if (Array.isArray(s) && s.length && s[0] && s[0].key) return s;
+  } catch (e) {}
+  return DEFAULT_COLS.map(c => ({ ...c }));
+}
+function saveCols() { localStorage.setItem(COLKEY, JSON.stringify(cols)); }
 function applyCols() {
   document.getElementById('table').style.setProperty(
-    '--cols', widths.map(w => w + 'px').join(' ') + ' 34px');
+    '--cols', cols.map(c => c.width + 'px').join(' ') + ' 34px');
+}
+const newKey = () => 'c' + Math.random().toString(36).slice(2, 8);
+
+function addCol() {
+  const label = (prompt('新列名称', '新字段') || '').trim();
+  if (!label) return;
+  const type = confirm('这一列用状态胶囊吗？\n确定 = 状态列（未开始/进行中/已完成/阻塞）\n取消 = 普通文字列')
+    ? 'status' : 'text';
+  const key = newKey();
+  cols.push({ key, label, type, width: type === 'status' ? 110 : 200 });
+  if (type === 'status') data.forEach(r => r.items.forEach(it => it[key] = '未开始'));
+  saveCols(); save(); renderTable();
+}
+function renameCol(i, el) { cols[i].label = el.textContent.trim() || '未命名'; saveCols(); }
+function delCol(e, i) {
+  e.stopPropagation();
+  if (cols.length === 1) return alert('至少保留一列');
+  if (!confirm(`删除「${cols[i].label}」列？这一列已填的内容会一起删掉`)) return;
+  const key = cols[i].key;
+  cols.splice(i, 1);
+  data.forEach(r => r.items.forEach(it => { delete it[key]; }));
+  saveCols(); save(); renderTable();
 }
 
 function renderTable() {
   const r = data[current];
   document.getElementById('title').textContent = r.date + ' 日报';
   document.getElementById('weekday').textContent = weekOf(r.date);
-  const head = `<div class="row head">${
-    COLS.map((c, i) => `<div class="cell">${c}<span class="resizer" onmousedown="startResize(event,${i})"></span></div>`).join('')
-  }<div class="cell"></div></div>`;
+  const head = `<div class="row head">${cols.map((c, i) => `
+      <div class="cell">
+        <span class="col-label" contenteditable="true" onblur="renameCol(${i},this)">${c.label}</span>
+        <span class="col-del" onclick="delCol(event,${i})" title="删除该列">×</span>
+        <span class="resizer" onmousedown="startResize(event,${i})"></span>
+      </div>`).join('')
+  }<div class="cell add-col" onclick="addCol()" title="新增一列">+</div></div>`;
   const rows = r.items.map((it, i) => `
-    <div class="row">
-      <div class="cell name" contenteditable="true" oninput="edit(${i},'name',this)">${it.name}</div>
-      <div class="cell status">
-        <span class="pill" data-s="${it.status}" onclick="openMenu(event,${i})">${it.status}</span>
-      </div>
-      <div class="cell" contenteditable="true" oninput="edit(${i},'progress',this)">${it.progress}</div>
-      <div class="cell" contenteditable="true" oninput="edit(${i},'block',this)">${it.block}</div>
-      <div class="cell" contenteditable="true" oninput="edit(${i},'next',this)">${it.next}</div>
-      <div class="del-row" onclick="delItem(${i})">×</div>
+    <div class="row">${cols.map(c => c.type === 'status'
+      ? `<div class="cell status"><span class="pill" data-s="${it[c.key] || '未开始'}" onclick="openMenu(event,${i},'${c.key}')">${it[c.key] || '未开始'}</span></div>`
+      : `<div class="cell ${c.key === 'name' ? 'name' : ''}" contenteditable="true" oninput="edit(${i},'${c.key}',this)">${it[c.key] || ''}</div>`
+    ).join('')}<div class="del-row" onclick="delItem(${i})">×</div>
     </div>`).join('');
   document.getElementById('table').innerHTML = head +
     (r.items.length ? rows : '<div class="empty">还没有项目，点右上角「新增项目」</div>');
   applyCols();
 }
 
+
 /* 状态下拉 */
 const menu = document.getElementById('menu');
-function openMenu(e, i) {
+function openMenu(e, i, key) {
   e.stopPropagation();
   const rect = e.currentTarget.getBoundingClientRect();
   menu.innerHTML = STATUS.map(s =>
-    `<div class="opt" onclick="setStatus(${i},'${s}')"><span class="pill" data-s="${s}">${s}</span></div>`).join('');
+    `<div class="opt" onclick="setStatus(${i},'${key}','${s}')"><span class="pill" data-s="${s}">${s}</span></div>`).join('');
   menu.style.display = 'block';
   menu.style.left = rect.left + 'px';
   menu.style.top = (rect.bottom + 6) + 'px';
@@ -269,28 +322,30 @@ document.addEventListener('click', closeMenu);
 let rz = null;
 function startResize(e, i) {
   e.preventDefault();
-  rz = { i, x: e.clientX, w: widths[i] };
+  rz = { i, x: e.clientX, w: cols[i].width };
   document.body.classList.add('resizing');
 }
 document.addEventListener('mousemove', e => {
   if (!rz) return;
-  widths[rz.i] = Math.max(70, rz.w + e.clientX - rz.x);
+  cols[rz.i].width = Math.max(70, rz.w + e.clientX - rz.x);
   applyCols();
 });
 document.addEventListener('mouseup', () => {
   if (!rz) return;
   rz = null;
   document.body.classList.remove('resizing');
-  localStorage.setItem('daily-cols', JSON.stringify(widths));
+  saveCols();
 });
 
 
 function render() { renderList(); renderTable(); }
 function select(i) { current = i; render(); }
 function edit(i, field, el) { data[current].items[i][field] = el.textContent.trim(); save(); }
-function setStatus(i, s) { data[current].items[i].status = s; save(); renderTable(); }
+function setStatus(i, key, s) { data[current].items[i][key] = s; save(); renderTable(); }
 function addItem() {
-  data[current].items.push({ name: '新项目', status: '未开始', progress: '', block: '', next: '' });
+  const it = {};
+  cols.forEach(c => it[c.key] = c.type === 'status' ? '未开始' : (c.key === 'name' ? '新项目' : ''));
+  data[current].items.push(it);
   save(); render();
 }
 function delItem(i) { data[current].items.splice(i, 1); save(); render(); }
@@ -312,7 +367,7 @@ function delReport(e, i) {
 render();
 
 /* ---------- 导出 Excel (.xlsx) ---------- */
-const HEAD = ['日期', '内容清单', '状态', '进展', '卡点', '预期'];
+const headRow = () => ['日期', ...cols.map(c => c.label)];
 const xe = s => String(s == null ? '' : s)
   .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 const colName = i => String.fromCharCode(65 + i);
@@ -321,8 +376,9 @@ function sheetXml(rows) {
   const body = rows.map((cells, r) => `<row r="${r + 1}">${
     cells.map((v, c) => `<c r="${colName(c)}${r + 1}" t="inlineStr"><is><t xml:space="preserve">${xe(v)}</t></is></c>`).join('')
   }</row>`).join('');
+  const widths = [16, ...cols.map(c => Math.max(10, Math.round(c.width / 8)))];
   return `<?xml version="1.0" encoding="UTF-8"?><worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><cols>${
-    [16, 22, 10, 40, 32, 32].map((w, i) => `<col min="${i + 1}" max="${i + 1}" width="${w}" customWidth="1"/>`).join('')
+    widths.map((w, i) => `<col min="${i + 1}" max="${i + 1}" width="${w}" customWidth="1"/>`).join('')
   }</cols><sheetData>${body}</sheetData></worksheet>`;
 }
 
@@ -368,9 +424,9 @@ function zip(files) {
 }
 
 function exportXlsx() {
-  const rows = [HEAD];
+  const rows = [headRow()];
   data.forEach(r => r.items.forEach(it =>
-    rows.push([r.date, it.name, it.status, it.progress, it.block, it.next])));
+    rows.push([r.date, ...cols.map(c => it[c.key] || '')])));
   const blob = zip([
     { name: '[Content_Types].xml', data: `<?xml version="1.0" encoding="UTF-8"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/><Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/></Types>` },
     { name: '_rels/.rels', data: `<?xml version="1.0" encoding="UTF-8"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/></Relationships>` },
@@ -482,22 +538,39 @@ async function readXlsx(buf) {
 }
 
 function applyRows(rows) {
-  if (rows[0] && /日期|内容清单/.test(rows[0].join(''))) rows = rows.slice(1);
+  let header = null;
+  if (rows[0] && /日期/.test(rows[0][0] || '')) { header = rows[0]; rows = rows.slice(1); }
+
+  /* 表头决定列：同名列沿用原有类型和宽度，新列按内容判断是否为状态列 */
+  if (header) {
+    const labels = header.slice(1).map(l => (l || '').trim()).filter(Boolean);
+    if (labels.length) cols = labels.map(label => {
+      const old = cols.find(c => c.label === label);
+      if (old) return { ...old };
+      const ci = header.indexOf(label);
+      const vals = rows.map(r => (r[ci] || '').trim()).filter(Boolean);
+      const isStatus = vals.length > 0 && vals.every(v => STATUS.includes(v));
+      return { key: newKey(), label, type: isStatus ? 'status' : 'text', width: isStatus ? 110 : 200 };
+    });
+  }
+
+  const at = i => header ? header.indexOf(cols[i].label) : i + 1;
   const map = new Map();
   rows.forEach(r => {
     const date = (r[0] || '').trim();
     if (!date) return;
     if (!map.has(date)) map.set(date, { date, items: [] });
-    map.get(date).items.push({
-      name: r[1] || '未命名',
-      status: STATUS.includes(r[2]) ? r[2] : '未开始',
-      progress: r[3] || '', block: r[4] || '', next: r[5] || ''
+    const it = {};
+    cols.forEach((c, i) => {
+      const v = (r[at(i)] || '').trim();
+      it[c.key] = c.type === 'status' ? (STATUS.includes(v) ? v : '未开始') : v;
     });
+    map.get(date).items.push(it);
   });
   if (!map.size) throw new Error('没有读到有效数据');
   data = [...map.values()].sort((a, b) => b.date.localeCompare(a.date));
   current = 0;
-  save(); render();
+  saveCols(); save(); render();
 }
 
 </script>
