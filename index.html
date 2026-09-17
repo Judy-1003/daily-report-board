@@ -1,0 +1,507 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>工作日报</title>
+<style>
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    height: 100vh;
+    display: flex;
+    font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif;
+    background: #fdf2f5;
+    color: #3d3238;
+    font-size: 14px;
+  }
+
+  /* 左侧日报列表 */
+  aside {
+    width: 210px;
+    flex: 0 0 210px;
+    background: #fff;
+    border-right: 1px solid #f6dde5;
+    padding: 20px 14px;
+    overflow-y: auto;
+  }
+  aside h1 { margin: 0 0 4px; font-size: 17px; }
+  aside .sub { font-size: 12px; color: #b192a0; margin-bottom: 14px; }
+  .add-report {
+    width: 100%;
+    border: none;
+    border-radius: 10px;
+    padding: 9px 0;
+    background: linear-gradient(135deg, #f6a5c0, #ef8fae);
+    color: #fff;
+    font-size: 13px;
+    cursor: pointer;
+    margin-bottom: 14px;
+  }
+  .report-item {
+    padding: 9px 12px;
+    border-radius: 10px;
+    cursor: pointer;
+    margin-bottom: 6px;
+    position: relative;
+  }
+  .report-item:hover { background: #fdf2f5; }
+  .report-item.active { background: #fdeaf0; color: #d1608a; font-weight: 600; }
+  .report-item .n { font-size: 12px; color: #b192a0; font-weight: 400; }
+  .report-item .del {
+    position: absolute; right: 8px; top: 8px;
+    color: #d3b3bf; display: none; font-size: 13px;
+  }
+  .report-item:hover .del { display: block; }
+
+  /* 右侧主区 */
+  main { flex: 1; padding: 22px 26px; overflow: auto; }
+  .top { display: flex; align-items: center; gap: 12px; margin-bottom: 16px; }
+  .top h2 { margin: 0; font-size: 20px; }
+  .top .date { font-size: 13px; color: #b192a0; }
+  .add-row {
+    margin-left: auto;
+    border: 1px solid #f2c0d1;
+    background: #fff;
+    color: #d1608a;
+    border-radius: 9px;
+    padding: 7px 14px;
+    cursor: pointer;
+    font-size: 13px;
+  }
+  .tool-btn {
+    border: 1px solid #eddfe4;
+    background: #fff;
+    color: #8a6a75;
+    border-radius: 9px;
+    padding: 7px 12px;
+    cursor: pointer;
+    font-size: 13px;
+  }
+  .tool-btn:hover { border-color: #f2c0d1; color: #d1608a; }
+
+  .table {
+    background: #fff;
+    border-radius: 14px;
+    box-shadow: 0 2px 10px rgba(226,160,182,.12);
+    width: max-content;
+    min-width: 100%;
+  }
+  .row {
+    display: grid;
+    grid-template-columns: var(--cols);
+    border-bottom: 1px solid #fbeef2;
+  }
+  .row:last-child { border-bottom: none; }
+  .row.head { background: #fdeaf0; font-weight: 600; color: #a8506f; border-radius: 14px 14px 0 0; }
+  .cell {
+    padding: 12px 14px;
+    border-right: 1px solid #fbeef2;
+    min-height: 46px;
+    overflow-wrap: break-word;
+    min-width: 0;
+  }
+  .cell:last-child { border-right: none; }
+  .row.head .cell { padding: 10px 14px; min-height: 0; position: relative; }
+  .cell[contenteditable]:focus { outline: 2px solid #f8cfdd; border-radius: 4px; }
+  .cell.name { font-weight: 600; }
+  .del-row { color: #ddc0cb; cursor: pointer; text-align: center; padding-top: 13px; }
+  .row:hover .del-row { color: #e59aad; }
+  .empty { padding: 30px; text-align: center; color: #c2a3af; }
+
+  /* 列宽拖拽 */
+  .resizer {
+    position: absolute;
+    top: 0; right: -3px;
+    width: 6px; height: 100%;
+    cursor: col-resize;
+  }
+  .resizer:hover { background: #f0a8c0; border-radius: 3px; }
+  body.resizing { cursor: col-resize; user-select: none; }
+
+  /* 状态胶囊 + 下拉 */
+  .cell.status { display: flex; align-items: flex-start; }
+  .pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    flex: 0 0 auto;
+    align-self: flex-start;
+    height: 22px;
+    font-size: 12px;
+    padding: 0 10px;
+    border-radius: 999px;
+    background: #eceff3;
+    color: #6b7785;
+    cursor: pointer;
+    user-select: none;
+    white-space: nowrap;
+  }
+  .pill::after { content: "▾"; font-size: 9px; opacity: .55; }
+  .pill[data-s="进行中"] { background: #fff3e2; color: #c98a2b; }
+  .pill[data-s="已完成"] { background: #e9f5ee; color: #4e9a6d; }
+  .pill[data-s="阻塞"]   { background: #fdeaea; color: #cf5c5c; }
+
+  #menu {
+    position: fixed;
+    display: none;
+    background: #fff;
+    border: 1px solid #f6dde5;
+    border-radius: 10px;
+    box-shadow: 0 6px 18px rgba(190,120,145,.18);
+    padding: 6px;
+    z-index: 20;
+  }
+  #menu .opt { padding: 4px 6px; cursor: pointer; border-radius: 7px; }
+  #menu .opt:hover { background: #fdf2f5; }
+  #menu .opt .pill { cursor: pointer; }
+  #menu .opt .pill::after { content: none; }
+
+</style>
+</head>
+<body>
+<aside>
+  <h1>工作日报</h1>
+  <div class="sub">按日期归档</div>
+  <button class="add-report" onclick="addReport()">+ 新增日报</button>
+  <div id="reportList"></div>
+</aside>
+
+<main>
+  <div class="top">
+    <h2 id="title">日报</h2>
+    <span class="date" id="weekday"></span>
+    <button class="add-row" onclick="addItem()">+ 新增项目</button>
+    <button class="tool-btn" onclick="exportXlsx()">导出 Excel</button>
+    <button class="tool-btn" onclick="document.getElementById('file').click()">导入</button>
+    <input type="file" id="file" accept=".xlsx,.csv" hidden onchange="importFile(this)">
+
+  </div>
+  <div class="table" id="table"></div>
+</main>
+<div id="menu"></div>
+<script>
+const STATUS = ['未开始', '进行中', '已完成', '阻塞'];
+const KEY = 'daily-reports';
+const WEEK = ['周日', '周一', '周二', '周三', '周四', '周五', '周六'];
+
+const pad = n => String(n).padStart(2, '0');
+function todayStr(d = new Date()) {
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+}
+function weekOf(str) {
+  const [y, m, d] = str.split('-').map(Number);
+  return WEEK[new Date(y, m - 1, d).getDay()];
+}
+
+let data = load();
+let current = 0;
+
+function load() {
+  try {
+    const saved = JSON.parse(localStorage.getItem(KEY));
+    if (saved && saved.length) return saved;
+  } catch (e) {}
+  return [{
+    date: todayStr(),
+    items: [
+      { name: '项目 A', status: '已完成', progress: '需求评审通过，设计稿已交付开发', block: '', next: '跟进开发联调进度' },
+      { name: '项目 B', status: '进行中', progress: '需求初稿完成，规则待业务方确认', block: '规则口径未定', next: '明日出终稿并发起评审' },
+      { name: '项目 C', status: '阻塞', progress: '数据口径已对齐', block: '部分指标缺少埋点，无法完整对比', next: '推动埋点补齐排期' }
+    ]
+  }];
+}
+function save() { localStorage.setItem(KEY, JSON.stringify(data)); }
+
+function renderList() {
+  document.getElementById('reportList').innerHTML = data.map((r, i) => `
+    <div class="report-item ${i === current ? 'active' : ''}" onclick="select(${i})">
+      ${r.date}<span class="del" onclick="delReport(event,${i})">×</span>
+      <div class="n">${weekOf(r.date)} · ${r.items.length} 个项目</div>
+    </div>`).join('');
+}
+
+const COLS = ['内容清单', '状态', '进展', '卡点', '预期'];
+let widths = JSON.parse(localStorage.getItem('daily-cols') || 'null') || [190, 110, 320, 250, 250];
+function applyCols() {
+  document.getElementById('table').style.setProperty(
+    '--cols', widths.map(w => w + 'px').join(' ') + ' 34px');
+}
+
+function renderTable() {
+  const r = data[current];
+  document.getElementById('title').textContent = r.date + ' 日报';
+  document.getElementById('weekday').textContent = weekOf(r.date);
+  const head = `<div class="row head">${
+    COLS.map((c, i) => `<div class="cell">${c}<span class="resizer" onmousedown="startResize(event,${i})"></span></div>`).join('')
+  }<div class="cell"></div></div>`;
+  const rows = r.items.map((it, i) => `
+    <div class="row">
+      <div class="cell name" contenteditable="true" oninput="edit(${i},'name',this)">${it.name}</div>
+      <div class="cell status">
+        <span class="pill" data-s="${it.status}" onclick="openMenu(event,${i})">${it.status}</span>
+      </div>
+      <div class="cell" contenteditable="true" oninput="edit(${i},'progress',this)">${it.progress}</div>
+      <div class="cell" contenteditable="true" oninput="edit(${i},'block',this)">${it.block}</div>
+      <div class="cell" contenteditable="true" oninput="edit(${i},'next',this)">${it.next}</div>
+      <div class="del-row" onclick="delItem(${i})">×</div>
+    </div>`).join('');
+  document.getElementById('table').innerHTML = head +
+    (r.items.length ? rows : '<div class="empty">还没有项目，点右上角「新增项目」</div>');
+  applyCols();
+}
+
+/* 状态下拉 */
+const menu = document.getElementById('menu');
+function openMenu(e, i) {
+  e.stopPropagation();
+  const rect = e.currentTarget.getBoundingClientRect();
+  menu.innerHTML = STATUS.map(s =>
+    `<div class="opt" onclick="setStatus(${i},'${s}')"><span class="pill" data-s="${s}">${s}</span></div>`).join('');
+  menu.style.display = 'block';
+  menu.style.left = rect.left + 'px';
+  menu.style.top = (rect.bottom + 6) + 'px';
+}
+function closeMenu() { menu.style.display = 'none'; }
+document.addEventListener('click', closeMenu);
+
+/* 列宽拖拽 */
+let rz = null;
+function startResize(e, i) {
+  e.preventDefault();
+  rz = { i, x: e.clientX, w: widths[i] };
+  document.body.classList.add('resizing');
+}
+document.addEventListener('mousemove', e => {
+  if (!rz) return;
+  widths[rz.i] = Math.max(70, rz.w + e.clientX - rz.x);
+  applyCols();
+});
+document.addEventListener('mouseup', () => {
+  if (!rz) return;
+  rz = null;
+  document.body.classList.remove('resizing');
+  localStorage.setItem('daily-cols', JSON.stringify(widths));
+});
+
+
+function render() { renderList(); renderTable(); }
+function select(i) { current = i; render(); }
+function edit(i, field, el) { data[current].items[i][field] = el.textContent.trim(); save(); }
+function setStatus(i, s) { data[current].items[i].status = s; save(); renderTable(); }
+function addItem() {
+  data[current].items.push({ name: '新项目', status: '未开始', progress: '', block: '', next: '' });
+  save(); render();
+}
+function delItem(i) { data[current].items.splice(i, 1); save(); render(); }
+
+function addReport() {
+  const d = prompt('日报日期', todayStr());
+  if (!d) return;
+  data.unshift({ date: d.trim(), items: [] });
+  current = 0;
+  save(); render();
+}
+function delReport(e, i) {
+  e.stopPropagation();
+  if (data.length === 1) return alert('至少保留一份日报');
+  data.splice(i, 1);
+  current = 0;
+  save(); render();
+}
+render();
+
+/* ---------- 导出 Excel (.xlsx) ---------- */
+const HEAD = ['日期', '内容清单', '状态', '进展', '卡点', '预期'];
+const xe = s => String(s == null ? '' : s)
+  .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+const colName = i => String.fromCharCode(65 + i);
+
+function sheetXml(rows) {
+  const body = rows.map((cells, r) => `<row r="${r + 1}">${
+    cells.map((v, c) => `<c r="${colName(c)}${r + 1}" t="inlineStr"><is><t xml:space="preserve">${xe(v)}</t></is></c>`).join('')
+  }</row>`).join('');
+  return `<?xml version="1.0" encoding="UTF-8"?><worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><cols>${
+    [16, 22, 10, 40, 32, 32].map((w, i) => `<col min="${i + 1}" max="${i + 1}" width="${w}" customWidth="1"/>`).join('')
+  }</cols><sheetData>${body}</sheetData></worksheet>`;
+}
+
+function crc32(buf) {
+  let c, t = crc32.t;
+  if (!t) {
+    t = crc32.t = [];
+    for (let n = 0; n < 256; n++) {
+      c = n;
+      for (let k = 0; k < 8; k++) c = c & 1 ? 0xEDB88320 ^ (c >>> 1) : c >>> 1;
+      t[n] = c >>> 0;
+    }
+  }
+  c = 0xFFFFFFFF;
+  for (let i = 0; i < buf.length; i++) c = t[(c ^ buf[i]) & 0xFF] ^ (c >>> 8);
+  return (c ^ 0xFFFFFFFF) >>> 0;
+}
+
+/* 打包为 zip（store，不压缩） */
+function zip(files) {
+  const enc = new TextEncoder();
+  const parts = [], central = [];
+  let offset = 0;
+  const num = (n, len) => {
+    const a = new Uint8Array(len);
+    for (let i = 0; i < len; i++) a[i] = (n >>> (i * 8)) & 0xFF;
+    return a;
+  };
+  const push = (arr, ...items) => items.forEach(x => arr.push(x));
+  files.forEach(f => {
+    const name = enc.encode(f.name), body = enc.encode(f.data), crc = crc32(body);
+    push(parts, num(0x04034b50, 4), num(20, 2), num(0x800, 2), num(0, 2), num(0, 2), num(0, 2),
+      num(crc, 4), num(body.length, 4), num(body.length, 4), num(name.length, 2), num(0, 2), name, body);
+    push(central, num(0x02014b50, 4), num(20, 2), num(20, 2), num(0x800, 2), num(0, 2), num(0, 2), num(0, 2),
+      num(crc, 4), num(body.length, 4), num(body.length, 4), num(name.length, 2), num(0, 2), num(0, 2),
+      num(0, 2), num(0, 2), num(0, 4), num(offset, 4), name);
+    offset += 30 + name.length + body.length;
+  });
+  const cdSize = central.reduce((s, a) => s + a.length, 0);
+  const end = [num(0x06054b50, 4), num(0, 2), num(0, 2), num(files.length, 2), num(files.length, 2),
+    num(cdSize, 4), num(offset, 4), num(0, 2)];
+  return new Blob([...parts, ...central, ...end], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+}
+
+function exportXlsx() {
+  const rows = [HEAD];
+  data.forEach(r => r.items.forEach(it =>
+    rows.push([r.date, it.name, it.status, it.progress, it.block, it.next])));
+  const blob = zip([
+    { name: '[Content_Types].xml', data: `<?xml version="1.0" encoding="UTF-8"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/><Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/></Types>` },
+    { name: '_rels/.rels', data: `<?xml version="1.0" encoding="UTF-8"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/></Relationships>` },
+    { name: 'xl/workbook.xml', data: `<?xml version="1.0" encoding="UTF-8"?><workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets><sheet name="日报" sheetId="1" r:id="rId1"/></sheets></workbook>` },
+    { name: 'xl/_rels/workbook.xml.rels', data: `<?xml version="1.0" encoding="UTF-8"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/></Relationships>` },
+    { name: 'xl/worksheets/sheet1.xml', data: sheetXml(rows) }
+  ]);
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = `工作日报_${data[0].date}.xlsx`;
+  a.click();
+  URL.revokeObjectURL(a.href);
+  return blob;
+}
+
+/* ---------- 导入（.xlsx / .csv） ---------- */
+async function importFile(input) {
+  const f = input.files[0];
+  input.value = '';
+  if (!f) return;
+  try {
+    const rows = /\.csv$/i.test(f.name)
+      ? parseCsv(await f.text())
+      : await readXlsx(await f.arrayBuffer());
+    applyRows(rows);
+  } catch (err) {
+    alert('导入失败：' + err.message);
+  }
+}
+
+function parseCsv(text) {
+  const rows = [];
+  let row = [], cell = '', q = false;
+  text = text.replace(/^\uFEFF/, '').replace(/\r\n?/g, '\n');
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i];
+    if (q) {
+      if (ch === '"' && text[i + 1] === '"') { cell += '"'; i++; }
+      else if (ch === '"') q = false;
+      else cell += ch;
+    } else if (ch === '"') q = true;
+    else if (ch === ',') { row.push(cell); cell = ''; }
+    else if (ch === '\n') { row.push(cell); rows.push(row); row = []; cell = ''; }
+    else cell += ch;
+  }
+  if (cell || row.length) { row.push(cell); rows.push(row); }
+  return rows.filter(r => r.some(c => c.trim()));
+}
+
+/* 解压 zip：store 直接取，deflate 用 DecompressionStream */
+async function unzip(buf) {
+  const dv = new DataView(buf), u8 = new Uint8Array(buf), dec = new TextDecoder();
+  let eocd = -1;
+  for (let i = u8.length - 22; i >= 0; i--) if (dv.getUint32(i, true) === 0x06054b50) { eocd = i; break; }
+  if (eocd < 0) throw new Error('不是有效的 xlsx 文件');
+  const count = dv.getUint16(eocd + 10, true);
+  let p = dv.getUint32(eocd + 16, true);
+  const out = {};
+  for (let n = 0; n < count; n++) {
+    const nameLen = dv.getUint16(p + 28, true);
+    const extraLen = dv.getUint16(p + 30, true);
+    const commentLen = dv.getUint16(p + 32, true);
+    const name = dv.getUint32(p, true) === 0x02014b50
+      ? dec.decode(u8.subarray(p + 46, p + 46 + nameLen)) : '';
+    const lo = dv.getUint32(p + 42, true);
+    const method = dv.getUint16(lo + 8, true);
+    const size = dv.getUint32(lo + 18, true);
+    const lNameLen = dv.getUint16(lo + 26, true);
+    const lExtraLen = dv.getUint16(lo + 28, true);
+    const start = lo + 30 + lNameLen + lExtraLen;
+    const raw = u8.subarray(start, start + size);
+    if (method === 0) out[name] = dec.decode(raw);
+    else if (method === 8) {
+      const ds = new DecompressionStream('deflate-raw');
+      const blob = await new Response(new Blob([raw]).stream().pipeThrough(ds)).arrayBuffer();
+      out[name] = dec.decode(blob);
+    }
+    p += 46 + nameLen + extraLen + commentLen;
+  }
+  return out;
+}
+
+const xd = s => s.replace(/&lt;/g, '<').replace(/&gt;/g, '>')
+  .replace(/&quot;/g, '"').replace(/&#39;|&apos;/g, "'").replace(/&amp;/g, '&');
+
+async function readXlsx(buf) {
+  const files = await unzip(buf);
+  const sheetName = Object.keys(files).find(n => /^xl\/worksheets\/.+\.xml$/.test(n));
+  if (!sheetName) throw new Error('找不到工作表');
+  const shared = (files['xl/sharedStrings.xml'] || '').match(/<si>[\s\S]*?<\/si>/g) || [];
+  const sst = shared.map(si => (si.match(/<t[^>]*>([\s\S]*?)<\/t>/g) || [])
+    .map(t => xd(t.replace(/<[^>]+>/g, ''))).join(''));
+  const rows = [];
+  (files[sheetName].match(/<row[\s\S]*?<\/row>/g) || []).forEach(rowXml => {
+    const cells = [];
+    (rowXml.match(/<c[\s\S]*?(?:\/>|<\/c>)/g) || []).forEach(c => {
+      const ref = (c.match(/r="([A-Z]+)\d+"/) || [])[1] || '';
+      let idx = 0;
+      for (const ch of ref) idx = idx * 26 + (ch.charCodeAt(0) - 64);
+      const type = (c.match(/t="(\w+)"/) || [])[1];
+      const v = (c.match(/<v>([\s\S]*?)<\/v>/) || [])[1];
+      const inline = (c.match(/<is>[\s\S]*?<t[^>]*>([\s\S]*?)<\/t>/) || [])[1];
+      let val = type === 's' ? (sst[+v] ?? '') : (inline ?? v ?? '');
+      cells[Math.max(0, idx - 1)] = xd(String(val)).trim();
+    });
+    rows.push(Array.from(cells, c => c || ''));
+  });
+  return rows.filter(r => r.some(c => c));
+}
+
+function applyRows(rows) {
+  if (rows[0] && /日期|内容清单/.test(rows[0].join(''))) rows = rows.slice(1);
+  const map = new Map();
+  rows.forEach(r => {
+    const date = (r[0] || '').trim();
+    if (!date) return;
+    if (!map.has(date)) map.set(date, { date, items: [] });
+    map.get(date).items.push({
+      name: r[1] || '未命名',
+      status: STATUS.includes(r[2]) ? r[2] : '未开始',
+      progress: r[3] || '', block: r[4] || '', next: r[5] || ''
+    });
+  });
+  if (!map.size) throw new Error('没有读到有效数据');
+  data = [...map.values()].sort((a, b) => b.date.localeCompare(a.date));
+  current = 0;
+  save(); render();
+}
+
+</script>
+
+</body>
+</html>
+
